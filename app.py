@@ -2,6 +2,7 @@
 import streamlit as st
 import csv
 import io
+from openpyxl import load_workbook
 from supabase import create_client
 
 st.set_page_config(
@@ -72,43 +73,48 @@ else:
             st.header("🔗 Chuyển link Affiliate")
             st.write("Quản lý link sản phẩm Shopee và link tiếp thị liên kết.")
 
-            with st.form("form_link"):
-                link_goc = st.text_input(
-                    "1. Link sản phẩm Shopee",
-                    placeholder="Dán link sản phẩm Shopee"
-                )
+            tab1, tab2 = st.tabs([
+                "➕ Thêm link thủ công",
+                "📥 Nhập Excel hàng loạt"
+            ])
 
-                link_aff = st.text_input(
-                    "2. Link Affiliate Shopee",
-                    placeholder="Dán link Affiliate Shopee"
-                )
+            with tab1:
+                with st.form("form_link"):
+                    link_goc = st.text_input(
+                        "1. Link sản phẩm Shopee",
+                        placeholder="Dán link sản phẩm Shopee"
+                    )
 
-                ghi_chu = st.text_input(
-                    "3. Ghi chú",
-                    placeholder="Tên sản phẩm hoặc thông tin ghi nhớ"
-                )
+                    link_aff = st.text_input(
+                        "2. Link Affiliate Shopee",
+                        placeholder="Dán link Affiliate Shopee"
+                    )
 
-                nut_luu = st.form_submit_button(
-                    "Lưu link vào danh sách",
-                    use_container_width=True
-                )
+                    ghi_chu = st.text_input(
+                        "3. Ghi chú",
+                        placeholder="Tên sản phẩm hoặc thông tin ghi nhớ"
+                    )
 
-            if nut_luu:
-                link_goc = link_goc.strip()
-                link_aff = link_aff.strip()
-                ghi_chu = ghi_chu.strip()
+                    nut_luu = st.form_submit_button(
+                        "Lưu link vào danh sách",
+                        use_container_width=True
+                    )
 
-                if not link_goc or not link_aff:
-                    st.error("Vui lòng nhập đủ 2 đường link.")
+                if nut_luu:
+                    link_goc = link_goc.strip()
+                    link_aff = link_aff.strip()
+                    ghi_chu = ghi_chu.strip()
 
-                elif not link_goc.startswith(("http://", "https://")):
-                    st.error("Link sản phẩm không đúng định dạng.")
+                    if not link_goc or not link_aff:
+                        st.error("Vui lòng nhập đủ 2 đường link.")
 
-                elif not link_aff.startswith(("http://", "https://")):
-                    st.error("Link Affiliate không đúng định dạng.")
+                    elif not link_goc.startswith(("http://", "https://")):
+                        st.error("Link sản phẩm không đúng định dạng.")
 
-                else:
-                    try:
+                    elif not link_aff.startswith(("http://", "https://")):
+                        st.error("Link Affiliate không đúng định dạng.")
+
+                    else:
                         trung = (
                             supabase.table("affiliate_links")
                             .select("id")
@@ -126,15 +132,151 @@ else:
                                 "note": ghi_chu
                             }).execute()
 
-                            st.success("Đã lưu link vào cơ sở dữ liệu!")
+                            st.success("Đã lưu link thành công!")
                             st.rerun()
 
-                    except Exception as e:
-                        st.error("Lỗi khi lưu link:")
-                        st.code(str(e))
+            with tab2:
+                st.subheader("📥 Nhập danh sách link từ Excel")
+
+                st.write(
+                    "File Excel cần có 3 cột: "
+                    "Link sản phẩm Shopee, Link Affiliate Shopee, Ghi chú."
+                )
+
+                st.caption(
+                    "Dữ liệu bắt đầu từ dòng 2. "
+                    "Dòng 1 là tiêu đề cột."
+                )
+
+                file_excel = st.file_uploader(
+                    "Chọn file Excel (.xlsx)",
+                    type=["xlsx"],
+                    key="file_excel"
+                )
+
+                if file_excel is not None:
+                    if st.button("🔍 Kiểm tra file Excel"):
+                        try:
+                            workbook = load_workbook(
+                                file_excel,
+                                read_only=True,
+                                data_only=True
+                            )
+
+                            sheet = workbook.active
+                            du_lieu = list(
+                                sheet.iter_rows(
+                                    min_row=2,
+                                    values_only=True
+                                )
+                            )
+
+                            workbook.close()
+
+                            hop_le = []
+                            loi = 0
+                            bo_qua = 0
+
+                            for row in du_lieu:
+                                if not row or len(row) < 2:
+                                    bo_qua += 1
+                                    continue
+
+                                link_sp = str(row[0] or "").strip()
+                                link_aff = str(row[1] or "").strip()
+                                note = str(row[2] or "").strip() if len(row) > 2 else ""
+
+                                if not link_sp or not link_aff:
+                                    loi += 1
+                                    continue
+
+                                if not link_sp.startswith(("http://", "https://")):
+                                    loi += 1
+                                    continue
+
+                                if not link_aff.startswith(("http://", "https://")):
+                                    loi += 1
+                                    continue
+
+                                hop_le.append({
+                                    "product_link": link_sp,
+                                    "affiliate_link": link_aff,
+                                    "note": note
+                                })
+
+                            st.session_state["excel_hop_le"] = hop_le
+                            st.session_state["excel_loi"] = loi
+                            st.session_state["excel_bo_qua"] = bo_qua
+
+                            st.success(
+                                f"Đọc được {len(hop_le)} dòng hợp lệ."
+                            )
+                            st.info(
+                                f"Dòng lỗi: {loi} | Dòng trống bỏ qua: {bo_qua}"
+                            )
+
+                        except Exception as e:
+                            st.error("Không đọc được file Excel.")
+                            st.code(str(e))
+
+                if "excel_hop_le" in st.session_state:
+                    so_dong = len(st.session_state["excel_hop_le"])
+
+                    if so_dong > 0:
+                        st.write(f"**Số link hợp lệ: {so_dong}**")
+
+                        if st.button("💾 Bắt đầu nhập vào hệ thống"):
+                            thanh_cong = 0
+                            trung = 0
+                            loi_nhap = 0
+
+                            tien_do = st.progress(0)
+                            trang_thai = st.empty()
+
+                            for i, item in enumerate(
+                                st.session_state["excel_hop_le"]
+                            ):
+                                try:
+                                    kiem_tra = (
+                                        supabase.table("affiliate_links")
+                                        .select("id")
+                                        .eq(
+                                            "product_link",
+                                            item["product_link"]
+                                        )
+                                        .limit(1)
+                                        .execute()
+                                    )
+
+                                    if kiem_tra.data:
+                                        trung += 1
+                                    else:
+                                        supabase.table("affiliate_links").insert(
+                                            item
+                                        ).execute()
+                                        thanh_cong += 1
+
+                                except Exception:
+                                    loi_nhap += 1
+
+                                tien_do.progress((i + 1) / so_dong)
+                                trang_thai.write(
+                                    f"Đang xử lý {i + 1}/{so_dong}"
+                                )
+
+                            st.session_state.pop("excel_hop_le", None)
+
+                            st.success(
+                                f"Hoàn tất! Đã thêm: {thanh_cong} link."
+                            )
+                            st.info(
+                                f"Trùng: {trung} | Lỗi khi lưu: {loi_nhap}"
+                            )
+                            st.rerun()
 
             st.divider()
             st.subheader("📋 Danh sách link đã lưu")
+
             st.metric("Tổng số link", len(danh_sach))
 
             tu_khoa = st.text_input(
