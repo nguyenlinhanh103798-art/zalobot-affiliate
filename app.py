@@ -2,7 +2,6 @@
 import streamlit as st
 import csv
 import io
-from datetime import datetime
 from supabase import create_client
 
 st.set_page_config(
@@ -120,7 +119,6 @@ else:
 
                         if trung.data:
                             st.warning("Link sản phẩm này đã tồn tại!")
-
                         else:
                             supabase.table("affiliate_links").insert({
                                 "product_link": link_goc,
@@ -137,7 +135,6 @@ else:
 
             st.divider()
             st.subheader("📋 Danh sách link đã lưu")
-
             st.metric("Tổng số link", len(danh_sach))
 
             tu_khoa = st.text_input(
@@ -157,14 +154,108 @@ else:
             st.caption(f"Tìm thấy {len(ket_qua)} kết quả")
 
             for i, item in enumerate(ket_qua):
+                ma_id = item["id"]
+
                 with st.expander(
                     f"{i + 1}. {item.get('note') or 'Sản phẩm chưa ghi chú'}"
                 ):
+                    st.caption("Mã link: " + str(ma_id))
                     st.caption("Ngày lưu: " + str(item.get("created_at", "")))
+
                     st.write("Link sản phẩm Shopee")
                     st.code(item.get("product_link", ""))
+
                     st.write("Link Affiliate Shopee")
                     st.code(item.get("affiliate_link", ""))
+
+                    st.divider()
+                    st.write("✏️ Chỉnh sửa thông tin")
+
+                    with st.form(f"form_sua_{ma_id}"):
+                        link_goc_moi = st.text_input(
+                            "Link sản phẩm Shopee",
+                            value=item.get("product_link", "")
+                        )
+
+                        link_aff_moi = st.text_input(
+                            "Link Affiliate Shopee",
+                            value=item.get("affiliate_link", "")
+                        )
+
+                        ghi_chu_moi = st.text_input(
+                            "Ghi chú",
+                            value=item.get("note") or ""
+                        )
+
+                        nut_cap_nhat = st.form_submit_button(
+                            "💾 Cập nhật link"
+                        )
+
+                    if nut_cap_nhat:
+                        link_goc_moi = link_goc_moi.strip()
+                        link_aff_moi = link_aff_moi.strip()
+                        ghi_chu_moi = ghi_chu_moi.strip()
+
+                        if not link_goc_moi or not link_aff_moi:
+                            st.error("Vui lòng nhập đủ 2 đường link.")
+
+                        elif not link_goc_moi.startswith(("http://", "https://")):
+                            st.error("Link sản phẩm không hợp lệ.")
+
+                        elif not link_aff_moi.startswith(("http://", "https://")):
+                            st.error("Link Affiliate không hợp lệ.")
+
+                        else:
+                            try:
+                                trung = (
+                                    supabase.table("affiliate_links")
+                                    .select("id")
+                                    .eq("product_link", link_goc_moi)
+                                    .neq("id", ma_id)
+                                    .limit(1)
+                                    .execute()
+                                )
+
+                                if trung.data:
+                                    st.warning("Link sản phẩm này đã tồn tại ở dòng khác!")
+                                else:
+                                    supabase.table("affiliate_links").update({
+                                        "product_link": link_goc_moi,
+                                        "affiliate_link": link_aff_moi,
+                                        "note": ghi_chu_moi
+                                    }).eq("id", ma_id).execute()
+
+                                    st.success("Đã cập nhật thành công!")
+                                    st.rerun()
+
+                            except Exception as e:
+                                st.error("Lỗi khi cập nhật:")
+                                st.code(str(e))
+
+                    st.divider()
+                    st.write("🗑️ Xóa link")
+
+                    xac_nhan = st.checkbox(
+                        "Tôi xác nhận muốn xóa link này",
+                        key=f"xac_nhan_xoa_{ma_id}"
+                    )
+
+                    if st.button(
+                        "🗑️ Xóa link",
+                        key=f"xoa_{ma_id}",
+                        disabled=not xac_nhan
+                    ):
+                        try:
+                            supabase.table("affiliate_links").delete().eq(
+                                "id", ma_id
+                            ).execute()
+
+                            st.success("Đã xóa link thành công!")
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error("Lỗi khi xóa:")
+                            st.code(str(e))
 
             if danh_sach:
                 output = io.StringIO()
@@ -189,7 +280,7 @@ else:
                     })
 
                 st.download_button(
-                    "Tải danh sách về máy",
+                    "📥 Tải danh sách về máy",
                     data="\ufeff" + output.getvalue(),
                     file_name="danh_sach_link_affiliate.csv",
                     mime="text/csv"
